@@ -1,0 +1,27 @@
+# Snippet to add under /data01/git-userfolder/docker-compose.yml (or your compose root).
+# Adjust the build context path if your compose file lives elsewhere.
+
+  kuechleo_uorf_explorer:
+    build:
+      context: ./kuechleo/MedGen-uORF-DB
+      args:
+        # Charite outbound proxy (needed on this host for apt/npm/pip)
+        HTTP_PROXY: http://proxy.charite.de:8080
+        HTTPS_PROXY: http://proxy.charite.de:8080
+        NO_PROXY: localhost,127.0.0.1,s-bih-mantomias.charite.de
+        VITE_BASE_PATH: /uorf-explorer/
+    ports:
+      - "8092:8000"
+    volumes:
+      # Catalog + IGV tracks + local GRCh38/GENCODE (do not bake ~2 GB into the image)
+      - ./kuechleo/MedGen-uORF-DB/data:/app/data
+    environment:
+      - PUBLIC_BASE_PATH=/uorf-explorer
+      - PORT=8000
+      - ALLOWED_HOSTS=*
+      - NO_PROXY=localhost,127.0.0.1,s-bih-mantomias.charite.de
+      - no_proxy=localhost,127.0.0.1,s-bih-mantomias.charite.de
+      - HTTP_PROXY=http://proxy.charite.de:8080
+      - HTTPS_PROXY=http://proxy.charite.de:8080
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped

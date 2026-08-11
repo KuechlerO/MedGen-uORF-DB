@@ -1,0 +1,28 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+node_modules/
+frontend/dist/
+.DS_Store
+*.log
+data/tracks/*.base.bed
+data/tracks/*.unsorted.bed
+# Genome-wide uORFdb track (regenerate with prepare_uorfdb.sh)
+data/tracks/uorfdb_uorfs.bed.gz
+data/tracks/uorfdb_uorfs.bed.gz.tbi
+# Large local genome assets (download + prepare_reference.sh)
+data/reference_genome/*.fa.gz
+data/reference_genome/*.fa.gz.fai
+data/reference_genome/*.fa.gz.gzi
+data/reference_genome/*.fa.orig.gz
+data/reference_genome/*.gtf.gz
+data/reference_genome/*.gtf.gz.tbi
+data/reference_genome/*.gtf.orig.gz
+data/reference_genome/*.tmp
+!data/reference_genome/.gitkeep
+# Cohort catalog (regenerate with prepare_cohort.sh)
+data/catalog/uorf.db
+data/catalog/samples.json
+data/tracks/by_sample/
+data/*
