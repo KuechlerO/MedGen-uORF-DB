@@ -286,9 +286,13 @@ class OverviewFilterBody(BaseModel):
     offset: int = Field(0, ge=0)
     sort_by: str = Field(
         "n_samples",
-        pattern="^(gene|variant|csq|max_score|n_samples|n_hits|modes)$",
+        pattern="^(gene|variant|csq|max_score|n_samples|n_hits|modes|n_het|n_hom)$",
     )
     sort_dir: str = Field("desc", pattern="^(asc|desc)$")
+    zygosity_mode: str = Field(
+        "any",
+        pattern="^(any|uniform|all_het|all_hom)$",
+    )
 
 
 def _run_sample_hits(
@@ -469,6 +473,7 @@ def _run_overview(
     offset: int,
     sort_by: str = "n_samples",
     sort_dir: str = "desc",
+    zygosity_mode: str = "any",
 ) -> dict[str, Any]:
     if not db_available():
         raise HTTPException(status_code=503, detail="Catalog not built")
@@ -483,6 +488,7 @@ def _run_overview(
         offset=offset,
         sort_by=sort_by,
         sort_dir=sort_dir,
+        zygosity_mode=zygosity_mode,
     )
 
 
@@ -499,9 +505,10 @@ def api_overview_variants_get(
     offset: int = Query(0, ge=0),
     sort_by: str = Query(
         "n_samples",
-        pattern="^(gene|variant|csq|max_score|n_samples|n_hits|modes)$",
+        pattern="^(gene|variant|csq|max_score|n_samples|n_hits|modes|n_het|n_hom)$",
     ),
     sort_dir: str = Query("desc", pattern="^(asc|desc)$"),
+    zygosity_mode: str = Query("any", pattern="^(any|uniform|all_het|all_hom)$"),
 ) -> dict[str, Any]:
     return _run_overview(
         mode=mode,
@@ -514,6 +521,7 @@ def api_overview_variants_get(
         offset=offset,
         sort_by=sort_by,
         sort_dir=sort_dir,
+        zygosity_mode=zygosity_mode,
     )
 
 
@@ -530,6 +538,7 @@ def api_overview_variants_post(body: OverviewFilterBody) -> dict[str, Any]:
         offset=body.offset,
         sort_by=body.sort_by,
         sort_dir=body.sort_dir,
+        zygosity_mode=body.zygosity_mode,
     )
 
 

@@ -59,6 +59,11 @@ export type Hit = {
   mode?: AnalysisMode;
   full_sample_name?: string;
   genotype: string;
+  gt?: string | null;
+  zygosity?: "het" | "hom" | "hom_ref" | "multi" | "unknown";
+  allele_depths?: number[] | null;
+  depth?: number | null;
+  gq?: number | null;
   window: {
     chrom: string;
     start: number;
@@ -119,6 +124,12 @@ export type GenePanelDetail = GenePanelSummary & {
   genes: string[];
 };
 
+export type OverviewSample = {
+  sample_id: string;
+  zygosity: "het" | "hom" | "hom_ref" | "multi" | "unknown" | string;
+  gt?: string | null;
+};
+
 export type OverviewVariant = {
   gene: string;
   chrom: string;
@@ -129,7 +140,11 @@ export type OverviewVariant = {
   max_score: number | null;
   n_samples: number;
   n_hits: number;
+  n_het?: number;
+  n_hom?: number;
+  n_other?: number;
   sample_ids: string[];
+  samples?: OverviewSample[];
   modes: string[];
 };
 

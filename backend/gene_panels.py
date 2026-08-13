@@ -1,4 +1,4 @@
-"""Load curated + Genomics England gene panels from data/genePanels/."""
+"""Load curated + Genomics England + OMIM gene panels from data/genePanels/."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 PANELS_DIR = ROOT / "data" / "genePanels"
 OVERVIEW = PANELS_DIR / "panels_overview.csv"
 GE_PANELS = PANELS_DIR / "genomicsEngland_panels_extended.csv"
+MIM2GENE = PANELS_DIR / "mim2gene.txt"
 
 
 def _normalize_genes(raw: list[str] | str) -> list[str]:
@@ -83,7 +84,48 @@ def load_all_panels() -> dict[str, dict[str, Any]]:
                     "genes": genes,
                 }
 
+    omim = _load_omim_genes()
+    if omim:
+        panels["omim:genes"] = omim
+
     return panels
+
+
+def _load_omim_genes() -> dict[str, Any] | None:
+    """Build an OMIM gene panel from mim2gene.txt (gene entries with HGNC symbols)."""
+    if not MIM2GENE.exists():
+        return None
+    genes: list[str] = []
+    version = ""
+    with MIM2GENE.open(encoding="utf-8") as fh:
+        for line in fh:
+            if line.startswith("#"):
+                if line.startswith("# Generated:"):
+                    version = line.split(":", 1)[1].strip()
+                continue
+            parts = line.rstrip("\n").split("\t")
+            if len(parts) < 4:
+                continue
+            entry_type = parts[1].strip().lower()
+            # OMIM gene / gene+phenotype loci with an approved symbol
+            if entry_type not in {"gene", "gene/phenotype"}:
+                continue
+            symbol = parts[3].strip()
+            if symbol:
+                genes.append(symbol)
+    genes = _normalize_genes(genes)
+    if not genes:
+        return None
+    return {
+        "id": "omim:genes",
+        "name": "OMIM genes",
+        "source": "OMIM",
+        "version": version,
+        "hyperlink": "https://www.omim.org/",
+        "curated": True,
+        "gene_count": len(genes),
+        "genes": genes,
+    }
 
 
 def list_panels(q: str | None = None) -> list[dict[str, Any]]:

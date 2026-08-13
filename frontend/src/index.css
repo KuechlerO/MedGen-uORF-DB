@@ -506,6 +506,36 @@ tbody tr.selected {
   border: 1px solid var(--brand-soft);
 }
 
+.ext-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1rem;
+  margin-top: 1rem;
+  align-items: center;
+}
+
+.ext-links .linkish {
+  margin-top: 0;
+  width: auto;
+  padding: 0.35rem 0;
+  border: 0;
+  text-align: left;
+}
+
+a.ext-link {
+  color: var(--brand);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+a.ext-link:hover {
+  color: var(--ink);
+}
+
+.link-cell {
+  white-space: nowrap;
+}
+
 .section-nav {
   display: inline-flex;
   border: 1px solid var(--line);
@@ -825,7 +855,8 @@ tbody tr.selected {
   gap: 0.4rem;
 }
 
-.sample-chip-list button {
+.sample-chip-list button,
+.sample-chip {
   border: 1px solid var(--line);
   background: var(--panel);
   border-radius: 8px;
@@ -835,8 +866,46 @@ tbody tr.selected {
   font-size: 0.85rem;
 }
 
-.sample-chip-list button:hover {
-  border-color: var(--brand-soft);
+.sample-chip-list button:hover,
+.sample-chip:hover {
+  filter: brightness(0.97);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--brand) 35%, transparent);
+}
+
+.zygosity-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-bottom: 0.55rem;
+}
+
+.zygosity-legend-item {
+  border: 1px solid;
+  border-radius: 999px;
+  padding: 0.15rem 0.55rem;
+  font-size: 0.75rem;
+}
+
+.zygosity-summary {
+  white-space: nowrap;
+  font-size: 0.85rem;
+}
+
+.zygosity-summary .zyg-sep {
+  margin: 0 0.25rem;
+  color: var(--muted);
+}
+
+.zygosity-summary .zyg-count.het {
+  color: #1e3a8a;
+}
+
+.zygosity-summary .zyg-count.hom {
+  color: #9a3412;
+}
+
+.zygosity-summary .zyg-count.other {
+  color: #64748b;
 }
 
 .detail-panel h2 {

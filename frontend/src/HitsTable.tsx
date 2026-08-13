@@ -1,6 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
+import type { MouseEvent } from "react";
 import type { Hit } from "./types";
-import { csqColor, formatScore, variantLabel, variantLabelShort } from "./utils";
+import {
+  csqColor,
+  formatScore,
+  formatZygosity,
+  geneCardsUrl,
+  gnomadVariantUrl,
+  variantLabel,
+  variantLabelShort,
+} from "./utils";
 
 type SortKey =
   | "mode"
@@ -9,6 +18,7 @@ type SortKey =
   | "csq"
   | "translation"
   | "score"
+  | "zygosity"
   | "uorf_type";
 
 type SortDir = "asc" | "desc";
@@ -65,6 +75,8 @@ function compareHits(a: Hit, b: Hit, key: SortKey): number {
       const bv = b.score ?? Number.NEGATIVE_INFINITY;
       return av - bv;
     }
+    case "zygosity":
+      return compareText(a.zygosity ?? "", b.zygosity ?? "");
     case "uorf_type":
       return compareText(a.uorf.type || "", b.uorf.type || "");
     default:
@@ -98,6 +110,10 @@ function SortHeader({
       </span>
     </th>
   );
+}
+
+function stopRowClick(e: MouseEvent) {
+  e.stopPropagation();
 }
 
 export function HitsTable({
@@ -165,35 +181,70 @@ export function HitsTable({
             <SortHeader label="CSQ" sortKey="csq" {...headerProps} />
             <SortHeader label="Translation" sortKey="translation" {...headerProps} />
             <SortHeader label="Score" sortKey="score" {...headerProps} />
+            <SortHeader label="Zygosity" sortKey="zygosity" {...headerProps} />
             <SortHeader label="uORF type" sortKey="uorf_type" {...headerProps} />
+            <th>Links</th>
           </tr>
         </thead>
         <tbody>
-          {pageHits.map((hit) => (
-            <tr
-              key={hit.id}
-              className={hit.id === selectedId ? "selected" : undefined}
-              onClick={() => onSelect(hit)}
-            >
-              {showMode ? <td className="mono">{hit.mode ?? "—"}</td> : null}
-              <td>
-                <strong>{hit.gene}</strong>
-              </td>
-              <td className="mono variant-cell" title={variantLabel(hit)}>
-                {variantLabelShort(hit)}
-              </td>
-              <td>
-                <span
-                  className="csq-dot"
-                  style={{ background: csqColor(hit.csq_class) }}
-                />
-                {hit.csq_class}
-              </td>
-              <td>{hit.translation || "—"}</td>
-              <td>{formatScore(hit.score)}</td>
-              <td>{hit.uorf.type || "—"}</td>
-            </tr>
-          ))}
+          {pageHits.map((hit) => {
+            const geneUrl = geneCardsUrl(hit.gene);
+            const gnomadUrl = gnomadVariantUrl(hit);
+            return (
+              <tr
+                key={hit.id}
+                className={hit.id === selectedId ? "selected" : undefined}
+                onClick={() => onSelect(hit)}
+              >
+                {showMode ? <td className="mono">{hit.mode ?? "—"}</td> : null}
+                <td>
+                  {geneUrl ? (
+                    <a
+                      className="ext-link"
+                      href={geneUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={stopRowClick}
+                    >
+                      <strong>{hit.gene}</strong>
+                    </a>
+                  ) : (
+                    <strong>{hit.gene}</strong>
+                  )}
+                </td>
+                <td className="mono variant-cell" title={variantLabel(hit)}>
+                  {variantLabelShort(hit)}
+                </td>
+                <td>
+                  <span
+                    className="csq-dot"
+                    style={{ background: csqColor(hit.csq_class) }}
+                  />
+                  {hit.csq_class}
+                </td>
+                <td>{hit.translation || "—"}</td>
+                <td>{formatScore(hit.score)}</td>
+                <td title={hit.gt ?? hit.genotype ?? undefined}>
+                  {formatZygosity(hit.zygosity)}
+                </td>
+                <td>{hit.uorf.type || "—"}</td>
+                <td className="link-cell" onClick={stopRowClick}>
+                  {gnomadUrl ? (
+                    <a
+                      className="ext-link"
+                      href={gnomadUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      gnomAD
+                    </a>
+                  ) : (
+                    "—"
+                  )}
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
       <div className="pagination">

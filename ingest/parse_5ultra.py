@@ -80,6 +80,61 @@ def _csq_class(csq: str) -> str:
     return csq.split()[0] if csq else "unknown"
 
 
+def _parse_genotype(genotype: str, format_field: str = "GT:AD:DP:GQ:PL") -> dict[str, Any]:
+    """Structured GT / zygosity from the VCF sample column (e.g. 0/1:10,20:30:99:…)."""
+    raw = (genotype or "").strip()
+    out: dict[str, Any] = {
+        "gt": None,
+        "zygosity": "unknown",
+        "allele_depths": None,
+        "depth": None,
+        "gq": None,
+    }
+    if not raw or raw == ".":
+        return out
+    keys = [k.strip() for k in (format_field or "GT").split(":") if k.strip()]
+    vals = raw.split(":")
+    fields = {keys[i]: vals[i] for i in range(min(len(keys), len(vals)))}
+    gt = (fields.get("GT") or vals[0] or "").strip()
+    if not gt or gt == ".":
+        return out
+    out["gt"] = gt
+    ad = fields.get("AD")
+    if ad and ad != ".":
+        depths: list[int] = []
+        for part in ad.split(","):
+            try:
+                depths.append(int(part))
+            except ValueError:
+                depths = []
+                break
+        if depths:
+            out["allele_depths"] = depths
+    for key, dest in (("DP", "depth"), ("GQ", "gq")):
+        val = fields.get(key)
+        if val and val != ".":
+            try:
+                out[dest] = int(val)
+            except ValueError:
+                pass
+    alleles = [a for a in gt.replace("|", "/").split("/") if a != ""]
+    if len(alleles) >= 2 and all(a != "." for a in alleles):
+        try:
+            nums = [int(a) for a in alleles]
+        except ValueError:
+            nums = []
+        if nums:
+            if all(n == 0 for n in nums):
+                out["zygosity"] = "hom_ref"
+            elif len(set(nums)) == 1:
+                out["zygosity"] = "hom"
+            elif 0 in nums and any(n > 0 for n in nums):
+                out["zygosity"] = "het"
+            else:
+                out["zygosity"] = "multi"
+    return out
+
+
 def bed_interval(start: int, end: int) -> tuple[int, int]:
     """Return 0-based half-open BED coords from inclusive genomic positions."""
     a, b = sorted((start, end))
@@ -183,6 +238,10 @@ def parse_rows(tsv_path: Path) -> tuple[list[dict[str, Any]], str | None]:
             genotype = ""
             if sample_name:
                 genotype = row.get(sample_name, "")
+            geno = _parse_genotype(genotype, row.get("FORMAT", "GT:AD:DP:GQ:PL"))
+            # Only keep alleles carried by the primary (first) sample column
+            if geno.get("zygosity") == "hom_ref":
+                continue
 
             record: dict[str, Any] = {
                 "id": hit_id,
@@ -241,6 +300,11 @@ def parse_rows(tsv_path: Path) -> tuple[list[dict[str, Any]], str | None]:
                 "pli": _safe_float(row.get("pLI")),
                 "sample": sample_name,
                 "genotype": genotype,
+                "gt": geno["gt"],
+                "zygosity": geno["zygosity"],
+                "allele_depths": geno["allele_depths"],
+                "depth": geno["depth"],
+                "gq": geno["gq"],
                 "info": row.get("INFO", ""),
             }
             rows.append(record)

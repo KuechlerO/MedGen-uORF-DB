@@ -144,6 +144,7 @@ export function getOverviewVariants(params: {
   offset?: number;
   sort_by?: string;
   sort_dir?: "asc" | "desc";
+  zygosity_mode?: "any" | "uniform" | "all_het" | "all_hom";
 } = {}) {
   return postJson<OverviewResponse>("/api/overview/variants", {
     mode: params.mode ?? "both",
@@ -157,6 +158,7 @@ export function getOverviewVariants(params: {
     offset: params.offset ?? 0,
     sort_by: params.sort_by ?? "n_samples",
     sort_dir: params.sort_dir ?? "desc",
+    zygosity_mode: params.zygosity_mode ?? "any",
   });
 }
 

@@ -1,6 +1,14 @@
 import type { ReactNode } from "react";
 import type { Hit } from "./types";
-import { csqColor, formatScore, variantLabel, variantLabelShort } from "./utils";
+import {
+  csqColor,
+  formatScore,
+  formatZygosity,
+  geneCardsUrl,
+  gnomadVariantUrl,
+  variantLabel,
+  variantLabelShort,
+} from "./utils";
 
 type Props = {
   hit: Hit | null;
@@ -17,6 +25,14 @@ function Row({ label, value }: { label: string; value: ReactNode }) {
   );
 }
 
+function ExtLink({ href, children }: { href: string; children: ReactNode }) {
+  return (
+    <a className="ext-link" href={href} target="_blank" rel="noopener noreferrer">
+      {children}
+    </a>
+  );
+}
+
 export function DetailPanel({ hit, onOpenUcsc }: Props) {
   if (!hit) {
     return (
@@ -28,11 +44,26 @@ export function DetailPanel({ hit, onOpenUcsc }: Props) {
   }
 
   const u = hit.uorf;
+  const genotypeLabel = hit.gt
+    ? `${formatZygosity(hit.zygosity)} (${hit.gt})`
+    : hit.genotype || null;
+  const ad =
+    hit.allele_depths && hit.allele_depths.length
+      ? hit.allele_depths.join(",")
+      : null;
+  const geneUrl = geneCardsUrl(hit.gene);
+  const gnomadUrl = gnomadVariantUrl(hit);
 
   return (
     <aside className="detail-panel">
       <header>
-        <p className="eyebrow">{hit.gene}</p>
+        <p className="eyebrow">
+          {geneUrl ? (
+            <ExtLink href={geneUrl}>{hit.gene}</ExtLink>
+          ) : (
+            hit.gene
+          )}
+        </p>
         <h2 title={variantLabel(hit)}>{variantLabelShort(hit)}</h2>
         <div className="pill-row">
           <span
@@ -43,6 +74,9 @@ export function DetailPanel({ hit, onOpenUcsc }: Props) {
           </span>
           <span className="pill muted">score {formatScore(hit.score)}</span>
           <span className="pill muted">{hit.translation || "—"}</span>
+          {hit.zygosity && hit.zygosity !== "unknown" ? (
+            <span className="pill muted">{formatZygosity(hit.zygosity)}</span>
+          ) : null}
         </div>
       </header>
 
@@ -100,7 +134,15 @@ export function DetailPanel({ hit, onOpenUcsc }: Props) {
           value={`LOEUF ${hit.loeuf ?? "—"} · pLI ${hit.pli ?? "—"}`}
         />
         <Row label="Splicing CSQ" value={hit.splicing_csq} />
-        <Row label="Genotype" value={hit.genotype || null} />
+        <Row label="Genotype" value={genotypeLabel} />
+        <Row
+          label="Depth"
+          value={
+            hit.depth != null || ad
+              ? `DP ${hit.depth ?? "—"} · AD ${ad ?? "—"} · GQ ${hit.gq ?? "—"}`
+              : null
+          }
+        />
       </dl>
 
       {u.seq ? (
@@ -110,9 +152,15 @@ export function DetailPanel({ hit, onOpenUcsc }: Props) {
         </div>
       ) : null}
 
-      <button type="button" className="linkish" onClick={() => onOpenUcsc(hit)}>
-        Open locus in UCSC Genome Browser
-      </button>
+      <div className="ext-links">
+        {geneUrl ? (
+          <ExtLink href={geneUrl}>GeneCards</ExtLink>
+        ) : null}
+        {gnomadUrl ? <ExtLink href={gnomadUrl}>gnomAD</ExtLink> : null}
+        <button type="button" className="linkish" onClick={() => onOpenUcsc(hit)}>
+          UCSC Genome Browser
+        </button>
+      </div>
     </aside>
   );
 }

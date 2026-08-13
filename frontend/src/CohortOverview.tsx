@@ -1,4 +1,5 @@
 import { Fragment, useCallback, useState } from "react";
+import type { MouseEvent } from "react";
 import { getOverviewVariants } from "./api";
 import { GenePanelFilter } from "./GenePanelFilter";
 import type { AnalysisMode, OverviewResponse, OverviewVariant } from "./types";
@@ -6,7 +7,11 @@ import {
   RECOMMENDED_SCORE_THRESHOLD,
   csqColor,
   formatScore,
+  formatZygosity,
+  geneCardsUrl,
+  gnomadVariantUrl,
   variantLabelShort,
+  zygosityStyle,
 } from "./utils";
 
 type Props = {
@@ -15,6 +20,8 @@ type Props = {
 
 type SampleScope = "all" | "multi" | "singleton";
 
+type ZygosityMode = "any" | "uniform" | "all_het" | "all_hom";
+
 type SortKey =
   | "gene"
   | "variant"
@@ -22,6 +29,7 @@ type SortKey =
   | "max_score"
   | "n_samples"
   | "n_hits"
+  | "n_het"
   | "modes";
 
 type SortDir = "asc" | "desc";
@@ -30,6 +38,7 @@ type AppliedFilters = {
   mode: AnalysisMode;
   useThreshold: boolean;
   sampleScope: SampleScope;
+  zygosityMode: ZygosityMode;
   genes: string[];
   panelId: string | null;
   q: string;
@@ -39,6 +48,7 @@ const DEFAULT_APPLIED: AppliedFilters = {
   mode: "both",
   useThreshold: true,
   sampleScope: "all",
+  zygosityMode: "any",
   genes: [],
   panelId: null,
   q: "",
@@ -76,6 +86,9 @@ export function CohortOverview({ onOpenSample }: Props) {
   const [draftMode, setDraftMode] = useState<AnalysisMode>(DEFAULT_APPLIED.mode);
   const [draftThreshold, setDraftThreshold] = useState(DEFAULT_APPLIED.useThreshold);
   const [draftScope, setDraftScope] = useState<SampleScope>(DEFAULT_APPLIED.sampleScope);
+  const [draftZygosity, setDraftZygosity] = useState<ZygosityMode>(
+    DEFAULT_APPLIED.zygosityMode,
+  );
   const [draftGenes, setDraftGenes] = useState<string[]>([]);
   const [draftPanelId, setDraftPanelId] = useState<string | null>(null);
   const [draftQ, setDraftQ] = useState("");
@@ -123,6 +136,7 @@ export function CohortOverview({ onOpenSample }: Props) {
           offset: pageOffset,
           sort_by: sort.key,
           sort_dir: sort.dir,
+          zygosity_mode: filters.zygosityMode,
         });
         setData(result);
         setApplied(filters);
@@ -141,6 +155,7 @@ export function CohortOverview({ onOpenSample }: Props) {
       mode: draftMode,
       useThreshold: draftThreshold,
       sampleScope: draftScope,
+      zygosityMode: draftZygosity,
       genes: draftGenes,
       panelId: draftPanelId,
       q: draftQ,
@@ -240,6 +255,36 @@ export function CohortOverview({ onOpenSample }: Props) {
           ))}
         </div>
 
+        <div className="mode-toggle" role="group" aria-label="Zygosity uniformity">
+          {(
+            [
+              ["any", "Any zygosity"],
+              ["uniform", "Uniform"],
+              ["all_het", "All het"],
+              ["all_hom", "All hom"],
+            ] as const
+          ).map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              className={draftZygosity === id ? "active" : undefined}
+              onClick={() => setDraftZygosity(id)}
+              disabled={loading}
+              title={
+                id === "uniform"
+                  ? "Only variants where every sample is heterozygous, or every sample is homozygous"
+                  : id === "all_het"
+                    ? "Only variants where every sample is heterozygous"
+                    : id === "all_hom"
+                      ? "Only variants where every sample is homozygous"
+                      : "No zygosity uniformity filter"
+              }
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
         <label className="threshold-toggle">
           <input
             type="checkbox"
@@ -317,14 +362,18 @@ export function CohortOverview({ onOpenSample }: Props) {
                     sortKey="n_samples"
                     {...headerProps}
                   />
+                  <SortHeader label="Zygosity" sortKey="n_het" {...headerProps} />
                   <SortHeader label="Hits" sortKey="n_hits" {...headerProps} />
                   <SortHeader label="Modes" sortKey="modes" {...headerProps} />
+                  <th>Links</th>
                 </tr>
               </thead>
               <tbody>
                 {data.variants.map((v) => {
                   const key = rowKey(v);
                   const open = expanded === key;
+                  const geneUrl = geneCardsUrl(v.gene);
+                  const gnomadUrl = gnomadVariantUrl(v);
                   return (
                     <Fragment key={key}>
                       <tr
@@ -332,7 +381,19 @@ export function CohortOverview({ onOpenSample }: Props) {
                         onClick={() => setExpanded(open ? null : key)}
                       >
                         <td>
-                          <strong>{v.gene}</strong>
+                          {geneUrl ? (
+                            <a
+                              className="ext-link"
+                              href={geneUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={(e: MouseEvent) => e.stopPropagation()}
+                            >
+                              <strong>{v.gene}</strong>
+                            </a>
+                          ) : (
+                            <strong>{v.gene}</strong>
+                          )}
                         </td>
                         <td
                           className="mono variant-cell"
@@ -355,25 +416,104 @@ export function CohortOverview({ onOpenSample }: Props) {
                         </td>
                         <td>{formatScore(v.max_score)}</td>
                         <td>{v.n_samples}</td>
+                        <td
+                          className="zygosity-summary"
+                          title={
+                            (v.n_other ?? 0) > 0
+                              ? `${v.n_het ?? 0} heterozygous · ${v.n_hom ?? 0} homozygous · ${v.n_other} other`
+                              : `${v.n_het ?? 0} heterozygous · ${v.n_hom ?? 0} homozygous`
+                          }
+                        >
+                          <span className="zyg-count het">{v.n_het ?? 0} het</span>
+                          <span className="zyg-sep">·</span>
+                          <span className="zyg-count hom">{v.n_hom ?? 0} hom</span>
+                          {(v.n_other ?? 0) > 0 ? (
+                            <>
+                              <span className="zyg-sep">·</span>
+                              <span className="zyg-count other">{v.n_other} other</span>
+                            </>
+                          ) : null}
+                        </td>
                         <td>{v.n_hits}</td>
                         <td className="mono">{v.modes.join(", ") || "—"}</td>
+                        <td
+                          className="link-cell"
+                          onClick={(e: MouseEvent) => e.stopPropagation()}
+                        >
+                          {gnomadUrl ? (
+                            <a
+                              className="ext-link"
+                              href={gnomadUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                            >
+                              gnomAD
+                            </a>
+                          ) : (
+                            "—"
+                          )}
+                        </td>
                       </tr>
                       {open ? (
                         <tr className="expand-row">
-                          <td colSpan={7}>
+                          <td colSpan={9}>
+                            <div className="zygosity-legend" aria-label="Zygosity legend">
+                              {(
+                                [
+                                  ["het", "Heterozygous"],
+                                  ["hom", "Homozygous"],
+                                  ["multi", "Multi-allelic"],
+                                  ["unknown", "Unknown"],
+                                ] as const
+                              ).map(([zyg, label]) => {
+                                const style = zygosityStyle(zyg);
+                                return (
+                                  <span
+                                    key={zyg}
+                                    className="zygosity-legend-item"
+                                    style={{
+                                      background: style.bg,
+                                      borderColor: style.border,
+                                      color: style.text,
+                                    }}
+                                  >
+                                    {label}
+                                  </span>
+                                );
+                              })}
+                            </div>
                             <div className="sample-chip-list">
-                              {v.sample_ids.map((sid) => (
-                                <button
-                                  key={sid}
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    onOpenSample(sid, `${v.chrom}:${v.pos}`);
-                                  }}
-                                >
-                                  {sid}
-                                </button>
-                              ))}
+                              {(v.samples?.length
+                                ? v.samples
+                                : v.sample_ids.map((sample_id) => ({
+                                    sample_id,
+                                    zygosity: "unknown" as const,
+                                    gt: null,
+                                  }))
+                              ).map((s) => {
+                                const style = zygosityStyle(s.zygosity);
+                                return (
+                                  <button
+                                    key={s.sample_id}
+                                    type="button"
+                                    className="sample-chip"
+                                    title={`${s.sample_id} · ${formatZygosity(s.zygosity)}${
+                                      s.gt ? ` (${s.gt})` : ""
+                                    }`}
+                                    style={{
+                                      background: style.bg,
+                                      borderColor: style.border,
+                                      color: style.text,
+                                    }}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      onOpenSample(s.sample_id, `${v.chrom}:${v.pos}`);
+                                    }}
+                                  >
+                                    {s.sample_id}
+                                  </button>
+                                );
+                              })}
                             </div>
                           </td>
                         </tr>

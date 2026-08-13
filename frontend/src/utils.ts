@@ -54,3 +54,54 @@ export function parseGeneList(text: string): string[] {
   }
   return out;
 }
+
+const ZYGOSITY_LABELS: Record<string, string> = {
+  het: "Heterozygous",
+  hom: "Homozygous",
+  hom_ref: "Homozygous ref",
+  multi: "Multi-allelic",
+  unknown: "Unknown",
+};
+
+/** Soft chip colors for cohort overview sample tiles. */
+export const ZYGOSITY_COLORS: Record<string, { bg: string; border: string; text: string }> = {
+  het: { bg: "#dbeafe", border: "#93c5fd", text: "#1e3a8a" },
+  hom: { bg: "#ffedd5", border: "#fdba74", text: "#9a3412" },
+  hom_ref: { bg: "#f3f4f6", border: "#d1d5db", text: "#4b5563" },
+  multi: { bg: "#ede9fe", border: "#c4b5fd", text: "#5b21b6" },
+  unknown: { bg: "#f8fafc", border: "#cbd5e1", text: "#64748b" },
+};
+
+export function formatZygosity(zygosity: string | null | undefined): string {
+  if (!zygosity) return "—";
+  return ZYGOSITY_LABELS[zygosity] ?? zygosity;
+}
+
+export function zygosityStyle(zygosity: string | null | undefined) {
+  return ZYGOSITY_COLORS[zygosity || "unknown"] ?? ZYGOSITY_COLORS.unknown;
+}
+
+/** GeneCards gene page. */
+export function geneCardsUrl(gene: string): string | null {
+  const symbol = (gene || "").trim();
+  if (!symbol) return null;
+  return `https://www.genecards.org/cgi-bin/carddisp.pl?gene=${encodeURIComponent(symbol)}`;
+}
+
+/**
+ * gnomAD v4 variant page (GRCh38 / hg38).
+ * ID format: chrom-pos-ref-alt without a chr prefix.
+ */
+export function gnomadVariantUrl(variant: {
+  chrom: string;
+  pos: number;
+  ref: string;
+  alt: string;
+}): string | null {
+  const chrom = (variant.chrom || "").replace(/^chr/i, "");
+  const ref = (variant.ref || "").trim();
+  const alt = (variant.alt || "").trim();
+  if (!chrom || !variant.pos || !ref || !alt) return null;
+  const id = `${chrom}-${variant.pos}-${ref}-${alt}`;
+  return `https://gnomad.broadinstitute.org/variant/${encodeURIComponent(id)}?dataset=gnomad_r4`;
+}

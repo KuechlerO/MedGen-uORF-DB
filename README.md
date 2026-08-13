@@ -185,7 +185,11 @@ python3 ingest/parse_5ultra.py example.tsv -o data/tracks
 
 ## Column notes (5ULTRA)
 
-Key fields used for visualization: `CHROM`, `POS`, `REF`, `ALT`, `CSQ`, `Translation`, `5ULTRA_Score`, `GENE`, `TRANSCRIPT`, `5UTR_*`, `STRAND`, `mSTART`, `uORF_START`/`END`, Kozak / conservation / Ribo-seq fields. **nosplice** TSVs omit `SpliceAI` / `Splicing_CSQ`; **splice** TSVs include them. Sample genotype columns (anything after `FORMAT` that is not a fixed annotation field) are carried through into the VCF.
+Key fields used for visualization: `CHROM`, `POS`, `REF`, `ALT`, `CSQ`, `Translation`, `5ULTRA_Score`, `GENE`, `TRANSCRIPT`, `5UTR_*`, `STRAND`, `mSTART`, `uORF_START`/`END`, Kozak / conservation / Ribo-seq fields. **nosplice** TSVs omit `SpliceAI` / `Splicing_CSQ`; **splice** TSVs include them. Sample genotype columns (anything after `FORMAT` that is not a fixed annotation field) are parsed into zygosity (het/hom) for the UI and carried through into the VCF.
+
+Gene panels include curated lists, Genomics England PanelApp, and **OMIM genes** from `data/genePanels/mim2gene.txt`.
+
+The UI links each gene to [GeneCards](https://www.genecards.org/) and each variant to [gnomAD v4](https://gnomad.broadinstitute.org/) (`chrom-pos-ref-alt` on GRCh38). See [`docs/columns.md`](docs/columns.md).
 
 ## License / citation
 

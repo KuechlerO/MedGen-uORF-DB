@@ -14,9 +14,22 @@ Genome build expected: **hg38** (`chr*` contig names).
 | Ribo_seq, uSTART_*_DIST, uSTART_PHYLOP/PHASTCONS | Evidence / conservation |
 | LOEUF, pLI | Gene constraint |
 | SpliceAI, Splicing_CSQ | Optional splicing context |
-| FORMAT + sample column | Genotype carried into VCF |
+| FORMAT + sample column | Genotype from the **first** sample column after `FORMAT`; parsed as **zygosity** (het/hom), GT, AD, DP, GQ. Primary-sample **homozygous ref** (`0/0` / `0|0`) rows are omitted (non-carriers in multi-sample VCFs). |
 
-Unknown columns after `FORMAT` are treated as the sample genotype field.
+Unknown columns after `FORMAT` are treated as sample genotype fields; only the first is used as the primary sample.
+
+## External linkouts
+
+| Resource | URL pattern |
+|----------|-------------|
+| **gnomAD v4** (GRCh38) | `https://gnomad.broadinstitute.org/variant/{chrom}-{pos}-{ref}-{alt}?dataset=gnomad_r4` (no `chr` prefix) |
+| **GeneCards** | `https://www.genecards.org/cgi-bin/carddisp.pl?gene={SYMBOL}` |
+
+Shown in the hits table, cohort overview, and detail panel. INFO `AF` in the TSV is sample/site allele fraction, not population frequency.
+
+## Gene panels
+
+Curated panels + Genomics England PanelApp + **OMIM genes** (`data/genePanels/mim2gene.txt`, panel id `omim:genes`) filter hits by gene symbol.
 
 ## IGV track provenance
 

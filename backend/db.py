@@ -8,9 +8,18 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+from hit_enrichment import enrich_hits, parse_genotype
+
 ROOT = Path(__file__).resolve().parents[1]
 DB_PATH = ROOT / "data" / "catalog" / "uorf.db"
 SUMMARY_PATH = ROOT / "data" / "catalog" / "samples.json"
+
+# Drop primary-sample non-carriers (GT 0/0 or 0|0 / stored zygosity hom_ref).
+_CARRIER_SQL = """(
+    IFNULL(json_extract(payload, '$.zygosity'), '') != 'hom_ref'
+    AND IFNULL(json_extract(payload, '$.genotype'), '') NOT LIKE '0/0%'
+    AND IFNULL(json_extract(payload, '$.genotype'), '') NOT LIKE '0|0%'
+)"""
 
 
 def db_available() -> bool:
@@ -161,7 +170,7 @@ def query_hits(
     args.append(limit)
     cur = conn.execute(sql, args)
     hits = [json.loads(row["payload"]) for row in cur.fetchall()]
-    return hits
+    return enrich_hits(hits)
 
 
 def search_hits_global(
@@ -210,7 +219,7 @@ def search_hits_global(
     """
     args.append(limit)
     cur = conn.execute(sql, args)
-    return [json.loads(row["payload"]) for row in cur.fetchall()]
+    return enrich_hits([json.loads(row["payload"]) for row in cur.fetchall()])
 
 
 def overview_variants(
@@ -225,11 +234,12 @@ def overview_variants(
     offset: int = 0,
     sort_by: str = "n_samples",
     sort_dir: str = "desc",
+    zygosity_mode: str = "any",
 ) -> dict[str, Any]:
     """Aggregate hits by (gene, chrom, pos, ref, alt) across samples."""
     conn = get_connection()
     mode_sql, mode_args = _mode_clause(mode)
-    where = ["dataset = '5ultra'", mode_sql]
+    where = ["dataset = '5ultra'", mode_sql, _CARRIER_SQL]
     args: list[Any] = list(mode_args)
 
     if min_score is not None:
@@ -257,32 +267,6 @@ def overview_variants(
         having.append("COUNT(DISTINCT sample_id) <= ?")
         having_args.append(max_samples)
     having_sql = f" HAVING {' AND '.join(having)}" if having else ""
-
-    sort_columns = {
-        "gene": "gene COLLATE NOCASE",
-        "variant": "chrom COLLATE NOCASE, pos, ref, alt",
-        "csq": "csq_class COLLATE NOCASE",
-        "max_score": "max_score",
-        "n_samples": "n_samples",
-        "n_hits": "n_hits",
-        "modes": "modes COLLATE NOCASE",
-    }
-    sort_key = sort_by if sort_by in sort_columns else "n_samples"
-    direction = "ASC" if (sort_dir or "").lower() == "asc" else "DESC"
-    # Put NULLs last for score-like columns when descending / first when ascending
-    nulls = "NULLS LAST" if direction == "DESC" else "NULLS FIRST"
-    if sort_key == "variant":
-        order_sql = f"chrom COLLATE NOCASE {direction}, pos {direction}, ref {direction}, alt {direction}"
-    elif sort_key in ("max_score", "n_samples", "n_hits"):
-        order_sql = f"{sort_columns[sort_key]} {direction} {nulls}"
-    else:
-        order_sql = f"{sort_columns[sort_key]} {direction}"
-    # Stable tie-breakers
-    if sort_key != "n_samples":
-        order_sql += ", n_samples DESC"
-    if sort_key != "max_score":
-        order_sql += ", max_score DESC"
-    order_sql += ", gene, chrom, pos"
 
     base_cte = f"""
         WITH filtered AS (
@@ -328,10 +312,7 @@ def overview_variants(
         )
     """
 
-    count_sql = base_cte + " SELECT COUNT(*) FROM grouped"
-    total = conn.execute(count_sql, [*args, *having_args]).fetchone()[0]
-
-    # Summary counts without min/max sample having (for cards)
+    # Summary counts without zygosity_mode / without min/max sample having (for cards)
     summary_sql = f"""
         WITH filtered AS (
             SELECT
@@ -356,17 +337,10 @@ def overview_variants(
     """
     summary_row = conn.execute(summary_sql, args).fetchone()
 
-    list_sql = (
-        base_cte
-        + f"""
-        SELECT * FROM grouped
-        ORDER BY {order_sql}
-        LIMIT ? OFFSET ?
-        """
-    )
-    rows = conn.execute(list_sql, [*args, *having_args, limit, offset]).fetchall()
+    list_sql = base_cte + " SELECT * FROM grouped"
+    rows = conn.execute(list_sql, [*args, *having_args]).fetchall()
 
-    variants = []
+    variants: list[dict[str, Any]] = []
     for row in rows:
         sample_ids = sorted(
             {s for s in (row["sample_ids"] or "").split(",") if s},
@@ -389,6 +363,19 @@ def overview_variants(
             }
         )
 
+    zyg_map = _load_sample_zygosity_map(conn, where_sql=where_sql, where_args=args)
+    _apply_overview_samples_and_counts(variants, zyg_map)
+
+    zmode = (zygosity_mode or "any").strip().lower()
+    if zmode not in {"any", "uniform", "all_het", "all_hom"}:
+        zmode = "any"
+    if zmode != "any":
+        variants = [v for v in variants if _matches_zygosity_mode(v, zmode)]
+
+    variants = _sort_overview_variants(variants, sort_by=sort_by, sort_dir=sort_dir)
+    total = len(variants)
+    page = variants[offset : offset + limit]
+
     return {
         "total": total,
         "limit": limit,
@@ -398,8 +385,182 @@ def overview_variants(
             "multi_sample": summary_row["multi_sample"] or 0,
             "singleton": summary_row["singleton"] or 0,
         },
-        "variants": variants,
+        "variants": page,
     }
+
+
+_ZYGOSITY_PRIORITY = {
+    "hom": 0,
+    "het": 1,
+    "multi": 2,
+    "hom_ref": 3,
+    "unknown": 4,
+}
+
+
+def _variant_key(gene: str, chrom: str, pos: int, ref: str, alt: str) -> tuple:
+    return (gene, chrom, int(pos), ref or "", alt or "")
+
+
+def _load_sample_zygosity_map(
+    conn: sqlite3.Connection,
+    *,
+    where_sql: str,
+    where_args: list[Any],
+) -> dict[tuple, dict[str, dict[str, Any]]]:
+    """Map variant key → sample_id → {sample_id, zygosity, gt} for filtered hits."""
+    sql = f"""
+        SELECT
+            gene,
+            chrom,
+            pos,
+            json_extract(payload, '$.ref') AS ref,
+            json_extract(payload, '$.alt') AS alt,
+            sample_id,
+            json_extract(payload, '$.genotype') AS genotype,
+            json_extract(payload, '$.zygosity') AS zygosity,
+            json_extract(payload, '$.gt') AS gt
+        FROM hits
+        WHERE {where_sql}
+    """
+    by_variant: dict[tuple, dict[str, dict[str, Any]]] = {}
+    for row in conn.execute(sql, where_args):
+        vkey = _variant_key(
+            row["gene"], row["chrom"], int(row["pos"]), row["ref"] or "", row["alt"] or ""
+        )
+        sid = row["sample_id"]
+        zyg = (row["zygosity"] or "").strip() or None
+        gt = (row["gt"] or "").strip() or None
+        if not zyg or zyg == "unknown" or not gt:
+            parsed = parse_genotype(row["genotype"])
+            zyg = parsed["zygosity"]
+            gt = parsed["gt"] or gt
+
+        samples = by_variant.setdefault(vkey, {})
+        prev = samples.get(sid)
+        entry = {"sample_id": sid, "zygosity": zyg or "unknown", "gt": gt}
+        if prev is None:
+            samples[sid] = entry
+            continue
+        if _ZYGOSITY_PRIORITY.get(entry["zygosity"], 9) < _ZYGOSITY_PRIORITY.get(
+            prev["zygosity"], 9
+        ):
+            samples[sid] = entry
+    return by_variant
+
+
+def _apply_overview_samples_and_counts(
+    variants: list[dict[str, Any]],
+    by_variant: dict[tuple, dict[str, dict[str, Any]]],
+) -> None:
+    for v in variants:
+        vkey = _variant_key(
+            v["gene"], v["chrom"], int(v["pos"]), v.get("ref") or "", v.get("alt") or ""
+        )
+        samples_map = by_variant.get(vkey, {})
+        samples: list[dict[str, Any]] = []
+        n_het = n_hom = n_other = 0
+        for sid in v["sample_ids"]:
+            if sid in samples_map:
+                s = samples_map[sid]
+            else:
+                s = {"sample_id": sid, "zygosity": "unknown", "gt": None}
+            samples.append(s)
+            z = s.get("zygosity") or "unknown"
+            if z == "het":
+                n_het += 1
+            elif z == "hom":
+                n_hom += 1
+            else:
+                n_other += 1
+        v["samples"] = samples
+        v["n_het"] = n_het
+        v["n_hom"] = n_hom
+        v["n_other"] = n_other
+
+
+def _matches_zygosity_mode(v: dict[str, Any], mode: str) -> bool:
+    n = int(v.get("n_samples") or 0)
+    if n < 1:
+        return False
+    n_het = int(v.get("n_het") or 0)
+    n_hom = int(v.get("n_hom") or 0)
+    if mode == "all_het":
+        return n_het == n
+    if mode == "all_hom":
+        return n_hom == n
+    if mode == "uniform":
+        return n_het == n or n_hom == n
+    return True
+
+
+def _sort_overview_variants(
+    variants: list[dict[str, Any]],
+    *,
+    sort_by: str,
+    sort_dir: str,
+) -> list[dict[str, Any]]:
+    asc = (sort_dir or "desc").lower() == "asc"
+    key = sort_by if sort_by else "n_samples"
+    out = list(variants)
+
+    def chrom_rank(chrom: str) -> int:
+        c = (chrom or "").lower()
+        if not c.startswith("chr"):
+            c = f"chr{c}"
+        order = [f"chr{i}" for i in range(1, 23)] + ["chrx", "chry", "chrm"]
+        try:
+            return order.index(c)
+        except ValueError:
+            return 999
+
+    # Stable tie-breakers first (low priority → high)
+    out.sort(key=lambda v: (v.get("chrom") or "", int(v.get("pos") or 0)))
+    out.sort(key=lambda v: (v.get("gene") or "").lower())
+    out.sort(
+        key=lambda v: (
+            v.get("max_score") is None,
+            -(v.get("max_score") or 0),
+        )
+    )
+    out.sort(key=lambda v: -(v.get("n_samples") or 0))
+
+    if key == "gene":
+        out.sort(key=lambda v: (v.get("gene") or "").lower(), reverse=not asc)
+    elif key == "variant":
+        out.sort(
+            key=lambda v: (
+                chrom_rank(v.get("chrom") or ""),
+                int(v.get("pos") or 0),
+                v.get("ref") or "",
+                v.get("alt") or "",
+            ),
+            reverse=not asc,
+        )
+    elif key == "csq":
+        out.sort(key=lambda v: (v.get("csq_class") or "").lower(), reverse=not asc)
+    elif key == "modes":
+        out.sort(
+            key=lambda v: ",".join(v.get("modes") or []).lower(),
+            reverse=not asc,
+        )
+    elif key == "n_het":
+        out.sort(key=lambda v: v.get("n_het") or 0, reverse=not asc)
+    elif key == "n_hom":
+        out.sort(key=lambda v: v.get("n_hom") or 0, reverse=not asc)
+    elif key == "n_hits":
+        out.sort(key=lambda v: v.get("n_hits") or 0, reverse=not asc)
+    elif key == "max_score":
+        out.sort(
+            key=lambda v: (
+                v.get("max_score") is None,
+                v.get("max_score") if v.get("max_score") is not None else 0,
+            ),
+            reverse=not asc,
+        )
+    else:
+        out.sort(key=lambda v: v.get("n_samples") or 0, reverse=not asc)
+    return out
 
 
 def catalog_stats() -> dict[str, Any]:
